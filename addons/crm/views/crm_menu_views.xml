@@ -128,6 +128,21 @@
         action="sales_team.mail_activity_type_action_config_sales"
         sequence="10"/>
     <menuitem
+        id="crm_team_menu_config_lead_status"
+        name="Lead Status"
+        parent="crm_menu_config"
+        action="crm.lead_status_action"/>
+    <menuitem
+        id="crm_team_menu_config_business_type"
+        name="Create Model For Business Type"
+        parent="crm_menu_config"
+        action="crm.business_type_action"/>
+    <menuitem
+        id="crm_team_menu_config_zone_model"
+        name="Create Zone Model"
+        parent="crm_menu_config"
+        action="crm.zone_type_action"/>
+    <menuitem
         id="crm_recurring_plan_menu_config"
         name="Recurring Plans"
         parent="crm_menu_config"

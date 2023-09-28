@@ -20,7 +20,7 @@
         'web_kanban_gauge',
         'contacts',
         'digest',
-        'phone_validation',
+        'phone_validation'
     ],
     'data': [
         'security/crm_security.xml',
@@ -47,6 +47,9 @@
         'views/crm_recurring_plan_views.xml',
         'views/crm_lost_reason_views.xml',
         'views/crm_stage_views.xml',
+        'views/crm_lead_status_views.xml',
+        'views/crm_business_type_views.xml',
+        'views/crm_zone_type_views.xml',
         'views/crm_lead_views.xml',
         'views/crm_team_member_views.xml',
         'views/digest_views.xml',

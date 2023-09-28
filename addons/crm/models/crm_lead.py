@@ -17,6 +17,7 @@ from odoo.osv import expression
 from odoo.tools.translate import _
 from odoo.tools import date_utils, email_re, email_split, is_html_empty, groupby
 from odoo.tools.misc import get_lang
+from odoo.exceptions import ValidationError
 
 from . import crm_stage
 
@@ -59,6 +60,9 @@ CRM_LEAD_FIELDS_TO_MERGE = [
     'mobile',
     'phone',
     'website',
+    'zone_type',
+    'business_type',
+    'principal_name'
 ]
 
 # Subset of partner fields: sync any of those
@@ -159,7 +163,7 @@ class Lead(models.Model):
     date_closed = fields.Datetime('Closed Date', readonly=True, copy=False)
     date_action_last = fields.Datetime('Last Action', readonly=True)
     date_open = fields.Datetime(
-        'Assignment Date', compute='_compute_date_open', readonly=True, store=True)
+        'Assignment Date', compute='_compute_date_open_Lead_accept', readonly=True, store=True)
     day_open = fields.Float('Days to Assign', compute='_compute_day_open', store=True)
     day_close = fields.Float('Days to Close', compute='_compute_day_close', store=True)
     date_last_stage_update = fields.Datetime(
@@ -212,6 +216,25 @@ class Lead(models.Model):
     country_id = fields.Many2one(
         'res.country', string='Country',
         compute='_compute_partner_address_values', readonly=False, store=True)
+
+    # added for millinia tech
+
+    zone_type = fields.Many2one(
+        'crm.zone.type', string='Zone', readonly=False, store=True)
+    business_type = fields.Many2one(
+        'crm.business.type', string='Business Type', readonly=False, store=True)
+    principal_name = fields.Many2one('res.partner.title', string='Principal Name', readonly=False, store=True)
+
+    date_assigned = fields.Datetime('Assigned Date', compute='_compute_date_assigned' ,readonly=True, copy=False,store=True)
+
+    accept_lead = fields.Boolean('Accept lead',default=False)
+
+    assigned_days = fields.Char('Assigned Days Count',  compute='_compute_assignment_days_count', readonly=True, store=True)
+    assignment_days = fields.Char('Assignment Days Count', compute='_compute_assignment_days_count',
+                                readonly=True, store=True)
+
+    # end for millinia tech
+
     # Probability (Opportunity only)
     probability = fields.Float(
         'Probability', group_operator="avg", copy=False,
@@ -328,10 +351,33 @@ class Lead(models.Model):
             if not lead.stage_id:
                 lead.stage_id = lead._stage_find(domain=[('fold', '=', False)]).id
 
-    @api.depends('user_id')
-    def _compute_date_open(self):
+
+
+    def action_accept_lead(self):
         for lead in self:
-            lead.date_open = self.env.cr.now() if lead.user_id else False
+            lead.date_open = self.env.cr.now()
+
+
+    @api.onchange('user_id')
+    def _compute_date_assigned(self):
+        for lead in self:
+            lead.date_assigned = self.env.cr.now() if lead.user_id else False
+
+
+    @api.depends('date_assigned', 'date_open')
+    def _compute_assignment_days_count(self):
+        """ Compute difference between create date and open date """
+        leads = self.filtered(lambda l: l.date_open and l.date_assigned and l.create_date)
+        others = self - leads
+        others.assigned_days = None
+        others.assignment_days = None
+        for lead in leads:
+            date_assigned = fields.Datetime.from_string(lead.date_assigned).replace(microsecond=0)
+            date_open = fields.Datetime.from_string(lead.date_open)
+            create_date = fields.Datetime.from_string(lead.create_date)
+            lead.assignment_days = abs((date_open - date_assigned).days)
+            lead.assigned_days = abs((create_date - date_assigned).days)
+
 
     @api.depends('stage_id')
     def _compute_date_last_stage_update(self):
