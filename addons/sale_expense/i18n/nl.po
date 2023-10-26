@@ -41,7 +41,7 @@ msgstr "Doorfactureren aan klant"
 #. module: sale_expense
 #: model:ir.model,name:sale_expense.model_hr_expense
 msgid "Expense"
-msgstr "Declaraties"
+msgstr "Declaratie"
 
 #. module: sale_expense
 #: model:ir.model.fields,field_description:sale_expense.field_product_product__expense_policy_tooltip
@@ -52,7 +52,7 @@ msgstr "Tooptip declaratiebeleid"
 #. module: sale_expense
 #: model:ir.model,name:sale_expense.model_hr_expense_sheet
 msgid "Expense Report"
-msgstr "Declaratierapport"
+msgstr "Onkostendeclaratie"
 
 #. module: sale_expense
 #: model:ir.model,name:sale_expense.model_hr_expense_split

@@ -201,16 +201,11 @@ function makeActionManager(env) {
             // do nothing, the action might simply not be serializable
         }
         action.context = makeContext([context, action.context], env.services.user.context);
-        if (action.domain) {
-            const domain = action.domain || [];
-            action.domain =
-                typeof domain === "string"
-                    ? evaluateExpr(
-                          domain,
-                          Object.assign({}, env.services.user.context, action.context)
-                      )
-                    : domain;
-        }
+        const domain = action.domain || [];
+        action.domain =
+            typeof domain === "string"
+                ? evaluateExpr(domain, Object.assign({}, env.services.user.context, action.context))
+                : domain;
         if (action.help) {
             const htmlHelp = document.createElement("div");
             htmlHelp.innerHTML = action.help;
@@ -447,12 +442,12 @@ function makeActionManager(env) {
             resModel: action.res_model,
             type: view.type,
             selectRecord: async (resId, { activeIds, mode }) => {
-                if (_getView("form")) {
+                if (target !== "new" && _getView("form")) {
                     await switchView("form", { mode, resId, resIds: activeIds });
                 }
             },
             createRecord: async () => {
-                if (_getView("form")) {
+                if (target !== "new" && _getView("form")) {
                     await switchView("form", { resId: false });
                 }
             },

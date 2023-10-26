@@ -6,6 +6,7 @@
 # Braulio D. López Vázquez <bdl@odoo.com>, 2022
 # Martin Trigaux, 2022
 # Fernanda Alvarez, 2023
+# Lucia Pacheco, 2023
 # Aimée Mendoza Sánchez, 2023
 # 
 msgid ""
@@ -25,7 +26,7 @@ msgstr ""
 #. module: pos_restaurant
 #: model:ir.model.fields.selection,name:pos_restaurant.selection__restaurant_printer__printer_type__iot
 msgid " Use a printer connected to the IoT Box"
-msgstr " Utilizar una impresora conectada a la IoT Box"
+msgstr " Utilizar una impresora conectada a la caja IoT"
 
 #. module: pos_restaurant
 #: model_terms:ir.ui.view,arch_db:pos_restaurant.view_restaurant_floor_kanban
@@ -350,7 +351,7 @@ msgstr "Bebidas"
 #: code:addons/pos_restaurant/static/src/js/ChromeWidgets/TicketButton.js:0
 #, python-format
 msgid "Due to a connection error, the orders are not synchronized."
-msgstr ""
+msgstr "No se pudieron sincronizar las órdenes debido a un error de conexión."
 
 #. module: pos_restaurant
 #. odoo-javascript
@@ -811,7 +812,7 @@ msgstr "Sesión del punto de venta"
 #. module: pos_restaurant
 #: model:ir.model.fields,field_description:pos_restaurant.field_res_config_settings__pos_iface_orderline_notes
 msgid "Pos Iface Orderline Notes"
-msgstr "Notas de línea de comandas en la interfaz del TPV"
+msgstr "Notas de línea de comandas en la interfaz del PdV"
 
 #. module: pos_restaurant
 #: model:ir.model.fields,field_description:pos_restaurant.field_res_config_settings__pos_iface_printbill

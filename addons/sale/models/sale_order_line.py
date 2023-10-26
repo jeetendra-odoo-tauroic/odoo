@@ -355,9 +355,9 @@ class SaleOrderLine(models.Model):
             name += "\n" + ptav.display_name
 
         # Sort the values according to _order settings, because it doesn't work for virtual records in onchange
-        custom_values = sorted(self.product_custom_attribute_value_ids, key=lambda r: (r.custom_product_template_attribute_value_id.id, r.id))
-        # display the is_custom values
-        for pacv in custom_values:
+        sorted_custom_ptav = self.product_custom_attribute_value_ids.custom_product_template_attribute_value_id.sorted()
+        for patv in sorted_custom_ptav:
+            pacv = self.product_custom_attribute_value_ids.filtered(lambda pcav: pcav.custom_product_template_attribute_value_id == patv)
             name += "\n" + pacv.display_name
 
         return name
@@ -691,7 +691,7 @@ class SaleOrderLine(models.Model):
         """
         # compute for analytic lines
         lines_by_analytic = self.filtered(lambda sol: sol.qty_delivered_method == 'analytic')
-        mapping = lines_by_analytic._get_delivered_quantity_by_analytic([])
+        mapping = lines_by_analytic._get_delivered_quantity_by_analytic([('amount', '<=', 0.0)])
         for so_line in lines_by_analytic:
             so_line.qty_delivered = mapping.get(so_line.id or so_line._origin.id, 0.0)
 
@@ -722,20 +722,32 @@ class SaleOrderLine(models.Model):
 
         # group analytic lines by product uom and so line
         domain = expression.AND([[('so_line', 'in', self.ids)], additional_domain])
-        analytic_lines = self.env['account.analytic.line'].search(domain)
-        for line in analytic_lines:
-            if not line.product_uom_id:
+        data = self.env['account.analytic.line'].read_group(
+            domain,
+            ['so_line', 'unit_amount', 'product_uom_id', 'move_line_id:count_distinct'], ['product_uom_id', 'so_line'], lazy=False
+        )
+
+        # convert uom and sum all unit_amount of analytic lines to get the delivered qty of SO lines
+        # browse so lines and product uoms here to make them share the same prefetch
+        lines = self.browse([item['so_line'][0] for item in data])
+        lines_map = {line.id: line for line in lines}
+        product_uom_ids = [item['product_uom_id'][0] for item in data if item['product_uom_id']]
+        product_uom_map = {uom.id: uom for uom in self.env['uom.uom'].browse(product_uom_ids)}
+        for item in data:
+            if not item['product_uom_id']:
                 continue
-            result.setdefault(line.so_line.id, 0.0)
-            if line.so_line.product_uom.category_id == line.product_uom_id.category_id:
-                qty = line.product_uom_id._compute_quantity(line.unit_amount, line.so_line.product_uom, rounding_method='HALF-UP')
+            so_line_id = item['so_line'][0]
+            so_line = lines_map[so_line_id]
+            result.setdefault(so_line_id, 0.0)
+            uom = product_uom_map.get(item['product_uom_id'][0])
+            # avoid counting unit_amount twice when dealing with multiple analytic lines on the same move line
+            if item['move_line_id'] == 1 and item['__count'] > 1:
+                qty = item['unit_amount'] / item['__count']
             else:
-                qty = line.unit_amount
-
-            # if greater than 0 -> refund
-            sign = line.amount and -line.amount / abs(line.amount) or 1
-
-            result[line.so_line.id] += sign * qty
+                qty = item['unit_amount']
+            if so_line.product_uom.category_id == uom.category_id:
+                qty = uom._compute_quantity(qty, so_line.product_uom, rounding_method='HALF-UP')
+            result[so_line_id] += qty
 
         return result
 
@@ -885,7 +897,7 @@ class SaleOrderLine(models.Model):
     @api.depends('order_id.partner_id', 'product_id')
     def _compute_analytic_distribution(self):
         for line in self:
-            if not line.display_type and line.state == 'draft':
+            if not line.display_type:
                 distribution = line.env['account.analytic.distribution.model']._get_distribution({
                     "product_id": line.product_id.id,
                     "product_categ_id": line.product_id.categ_id.id,
@@ -906,7 +918,8 @@ class SaleOrderLine(models.Model):
     @api.depends('state')
     def _compute_product_uom_readonly(self):
         for line in self:
-            line.product_uom_readonly = line.state in ['sale', 'done', 'cancel']
+            # line.ids checks whether it's a new record not yet saved
+            line.product_uom_readonly = line.ids and line.state in ['sale', 'done', 'cancel']
 
     #=== CONSTRAINT METHODS ===#
 

@@ -12,7 +12,7 @@ from dateutil.relativedelta import relativedelta
 from odoo import api, fields, models, tools
 from odoo.tools import exception_to_unicode
 from odoo.tools.translate import _
-from odoo.exceptions import MissingError
+from odoo.exceptions import MissingError, ValidationError
 
 
 _logger = logging.getLogger(__name__)
@@ -82,6 +82,9 @@ class EventMailScheduler(models.Model):
     def _selection_template_model(self):
         return [('mail.template', 'Mail')]
 
+    def _selection_template_model_get_mapping(self):
+        return {'mail': 'mail.template'}
+
     @api.onchange('notification_type')
     def set_template_ref_model(self):
         mail_model = self.env['mail.template']
@@ -132,7 +135,7 @@ class EventMailScheduler(models.Model):
             else:
                 date, sign = scheduler.event_id.date_end, 1
 
-            scheduler.scheduled_date = date + _INTERVALS[scheduler.interval_unit](sign * scheduler.interval_nbr) if date else False
+            scheduler.scheduled_date = date.replace(microsecond=0) + _INTERVALS[scheduler.interval_unit](sign * scheduler.interval_nbr) if date else False
 
     @api.depends('interval_type', 'scheduled_date', 'mail_done')
     def _compute_mail_state(self):
@@ -147,6 +150,14 @@ class EventMailScheduler(models.Model):
                 scheduler.mail_state = 'scheduled'
             else:
                 scheduler.mail_state = 'running'
+
+    @api.constrains('notification_type', 'template_ref')
+    def _check_template_ref_model(self):
+        model_map = self._selection_template_model_get_mapping()
+        for record in self.filtered('template_ref'):
+            model = model_map[record.notification_type]
+            if record.template_ref._name != model:
+                raise ValidationError(_('The template which is referenced should be coming from %(model_name)s model.', model_name=model))
 
     def execute(self):
         for scheduler in self:
@@ -248,6 +259,7 @@ You receive this email because you are:
     @api.model
     def schedule_communications(self, autocommit=False):
         schedulers = self.search([
+            ('event_id.active', '=', True),
             ('mail_done', '=', False),
             ('scheduled_date', '<=', fields.Datetime.now())
         ])
@@ -320,6 +332,6 @@ class EventMailRegistration(models.Model):
     def _compute_scheduled_date(self):
         for mail in self:
             if mail.registration_id:
-                mail.scheduled_date = mail.registration_id.create_date + _INTERVALS[mail.scheduler_id.interval_unit](mail.scheduler_id.interval_nbr)
+                mail.scheduled_date = mail.registration_id.create_date.replace(microsecond=0) + _INTERVALS[mail.scheduler_id.interval_unit](mail.scheduler_id.interval_nbr)
             else:
                 mail.scheduled_date = False

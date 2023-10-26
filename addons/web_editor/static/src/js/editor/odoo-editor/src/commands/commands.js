@@ -49,10 +49,12 @@ import {
     fillEmpty,
     isEmptyBlock,
     getCursorDirection,
+    firstLeaf,
+    lastLeaf,
 } from '../utils/utils.js';
 
-const TEXT_CLASSES_REGEX = /\btext-[^\s]*\b/g;
-const BG_CLASSES_REGEX = /\bbg-[^\s]*\b/g;
+const TEXT_CLASSES_REGEX = /\btext-[^\s]*\b/;
+const BG_CLASSES_REGEX = /\bbg-[^\s]*\b/;
 
 function align(editor, mode) {
     const sel = editor.document.getSelection();
@@ -148,27 +150,26 @@ export const editorCommands = {
     insert: (editor, content) => {
         if (!content) return;
         const selection = editor.document.getSelection();
-        const range = selection.getRangeAt(0);
         let startNode;
         let insertBefore = false;
-        if (selection.isCollapsed) {
-            if (range.startContainer.nodeType === Node.TEXT_NODE) {
-                insertBefore = !range.startOffset;
-                splitTextNode(range.startContainer, range.startOffset, DIRECTIONS.LEFT);
-                startNode = range.startContainer;
-            }
-        } else {
+        if (!selection.isCollapsed) {
             editor.deleteRange(selection);
+        }
+        const range = selection.getRangeAt(0);
+        if (range.startContainer.nodeType === Node.TEXT_NODE) {
+            insertBefore = !range.startOffset;
+            splitTextNode(range.startContainer, range.startOffset, DIRECTIONS.LEFT);
+            startNode = range.startContainer;
         }
 
         const container = document.createElement('fake-element');
         const containerFirstChild = document.createElement('fake-element-fc');
         const containerLastChild = document.createElement('fake-element-lc');
 
-        if (content instanceof Node) {
-            container.replaceChildren(content);
-        } else {
+        if (typeof content === 'string') {
             container.textContent = content;
+        } else {
+            container.replaceChildren(content);
         }
 
         // In case the html inserted starts with a list and will be inserted within
@@ -319,34 +320,26 @@ export const editorCommands = {
 
     // Change tags
     setTag(editor, tagName) {
-        const restoreCursor = preserveCursor(editor.document);
         const range = getDeepRange(editor.editable, { correctTripleClick: true });
         const selectedBlocks = [...new Set(getTraversedNodes(editor.editable, range).map(closestBlock))];
         const deepestSelectedBlocks = selectedBlocks.filter(block => (
-            !descendants(block).some(descendant => selectedBlocks.includes(descendant))
+            !descendants(block).some(descendant => selectedBlocks.includes(descendant)) &&
+            block.isContentEditable
         ));
+        const [startContainer, startOffset, endContainer, endOffset] = [firstLeaf(range.startContainer), range.startOffset, lastLeaf(range.endContainer), range.endOffset];
         for (const block of deepestSelectedBlocks) {
             if (
                 ['P', 'PRE', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'BLOCKQUOTE'].includes(
                     block.nodeName,
                 )
             ) {
-                setSelection(block, 0, block, nodeSize(block));
-                editor.historyPauseSteps();
-                // Keep the alignment and remove rest of the applied styles.
-                const textAlign = block.style.textAlign;
-                editor.execCommand('removeFormat');
-                if (textAlign) {
-                    block.style.textAlign = textAlign;
-                }
-                editor.historyUnpauseSteps();
                 const inLI = block.closest('li');
                 if (inLI && tagName === "P") {
                     inLI.oToggleList(0);
                 } else {
                     setTagName(block, tagName);
                 }
-            }  else {
+            } else {
                 // eg do not change a <div> into a h1: insert the h1
                 // into it instead.
                 const newBlock = editor.document.createElement(tagName);
@@ -355,7 +348,10 @@ export const editorCommands = {
                 children.forEach(child => newBlock.appendChild(child));
             }
         }
-        restoreCursor();
+        const newRange = new Range();
+        newRange.setStart(startContainer,startOffset);
+        newRange.setEnd(endContainer,endOffset);
+        getDeepRange(editor.editable, { range: newRange, select: true, });
         editor.historyStep();
     },
 
@@ -370,7 +366,7 @@ export const editorCommands = {
         getDeepRange(editor.editable, { splitText: true, select: true, correctTripleClick: true });
         const selection = editor.document.getSelection();
         const selectedTextNodes = [selection.anchorNode, ...getSelectedNodes(editor.editable), selection.focusNode]
-            .filter(n => n.nodeType === Node.TEXT_NODE && n.nodeValue.trim().length);
+            .filter(n => n.nodeType === Node.TEXT_NODE && closestElement(n).isContentEditable && n.nodeValue.trim().length);
 
         const changedElements = [];
         const defaultDirection = editor.options.direction;
@@ -394,11 +390,21 @@ export const editorCommands = {
         }
     },
     removeFormat: editor => {
+        const textAlignStyles = new Map();
+        getTraversedNodes(editor.editable).forEach((element) => {
+            const block = closestBlock(element);
+            if (block.style.textAlign) {
+                textAlignStyles.set(block, block.style.textAlign);
+            }
+        });
         editor.document.execCommand('removeFormat');
         for (const node of getTraversedNodes(editor.editable)) {
             // The only possible background image on text is the gradient.
             closestElement(node).style.backgroundImage = '';
         }
+        textAlignStyles.forEach((textAlign, block) => {
+            block.style.setProperty('text-align', textAlign);
+        });
     },
 
     // Align
@@ -455,7 +461,7 @@ export const editorCommands = {
             }
         }
         const targetedNodes = isCollapsed ? [sel.anchorNode] : getSelectedNodes(editor.editable);
-        const links = new Set(targetedNodes.map(node => closestElement(node, 'a')).filter(a => a));
+        const links = new Set(targetedNodes.map(node => closestElement(node, 'a')).filter(a => a && a.isContentEditable));
         if (links.size) {
             const cr = preserveCursor(editor.document);
             for (const link of links) {
@@ -471,12 +477,13 @@ export const editorCommands = {
         const end = leftLeafFirstPath(...pos1).next().value;
         const li = new Set();
         for (const node of leftLeafFirstPath(...pos2)) {
-            const cli = closestBlock(node);
+            const cli = closestElement(node,'li');
             if (
                 cli &&
                 cli.tagName == 'LI' &&
                 !li.has(cli) &&
-                !cli.classList.contains('oe-nested')
+                !cli.classList.contains('oe-nested') &&
+                cli.isContentEditable
             ) {
                 li.add(cli);
             }
@@ -495,12 +502,17 @@ export const editorCommands = {
         const li = new Set();
         const blocks = new Set();
 
-        for (const node of getTraversedNodes(editor.editable)) {
-            if (node.nodeType === Node.TEXT_NODE && !isVisibleStr(node)) {
+        const selectedBlocks = getTraversedNodes(editor.editable);
+        const deepestSelectedBlocks = selectedBlocks.filter(block => (
+            !descendants(block).some(descendant => selectedBlocks.includes(descendant))
+        ));
+        for (const node of deepestSelectedBlocks) {
+            if (node.nodeType === Node.TEXT_NODE && !isVisibleStr(node) && closestElement(node).isContentEditable) {
                 node.remove();
             } else {
-                const block = closestBlock(node);
-                if (!['OL', 'UL'].includes(block.tagName)) {
+                let block = closestBlock(node);
+                if (!['OL', 'UL'].includes(block.tagName) && block.isContentEditable) {
+                    block = block.closest('li') || block;
                     const ublock = block.closest('ol, ul');
                     ublock && getListMode(ublock) == mode ? li.add(block) : blocks.add(block);
                 }
@@ -527,7 +539,9 @@ export const editorCommands = {
      * @param {Element} [element]
      */
     applyColor: (editor, color, mode, element) => {
-        const selectedTds = editor.editable.querySelectorAll('td.o_selected_td');
+        const selectedTds = [...editor.editable.querySelectorAll('td.o_selected_td')].filter(
+            node => closestElement(node).isContentEditable
+        );
         let coloredTds = [];
         if (selectedTds.length) {
             for (const td of selectedTds) {
@@ -548,7 +562,7 @@ export const editorCommands = {
         if (!range) return;
         const restoreCursor = preserveCursor(editor.document);
         // Get the <font> nodes to color
-        const selectionNodes = getSelectedNodes(editor.editable);
+        const selectionNodes = getSelectedNodes(editor.editable).filter(node => closestElement(node).isContentEditable);
         if (isEmptyBlock(range.endContainer)) {
             selectionNodes.push(range.endContainer, ...descendants(range.endContainer));
         }
@@ -605,7 +619,7 @@ export const editorCommands = {
         const fontsSet = new Set(fonts);
         for (const font of fontsSet) {
             colorElement(font, color, mode);
-            if (!hasColor(font, mode) && !font.hasAttribute('style')) {
+            if ((!hasColor(font, 'color') && !hasColor(font,'backgroundColor')) && (!font.hasAttribute('style') || !color)) {
                 for (const child of [...font.childNodes]) {
                     font.parentNode.insertBefore(child, font);
                 }
@@ -671,7 +685,9 @@ export const editorCommands = {
         }
         referenceColumn.forEach((cell, rowIndex) => {
             const newCell = document.createElement('td');
-            newCell.append(document.createElement('br'));
+            const p = document.createElement('p');
+            p.append(document.createElement('br'));
+            newCell.append(p);
             cell[beforeOrAfter](newCell);
             if (rowIndex === 0) {
                 newCell.style.width = cell.style.width;
@@ -697,7 +713,9 @@ export const editorCommands = {
         const referenceRowWidths = [...cells].map(cell => cell.style.width || cell.clientWidth + 'px');
         newRow.append(...Array.from(Array(cells.length)).map(() => {
             const td = document.createElement('td');
-            td.append(document.createElement('br'));
+            const p = document.createElement('p');
+            p.append(document.createElement('br'));
+            td.append(p);
             return td;
         }));
         referenceRow[beforeOrAfter](newRow);
@@ -737,6 +755,22 @@ export const editorCommands = {
         const siblingRow = rows[rowIndex - 1] || rows[rowIndex + 1];
         row.remove();
         siblingRow ? setSelection(...startPos(siblingRow)) : editorCommands.deleteTable(editor, table);
+    },
+    resetSize: (editor,table) => {
+        if (!table) {
+            getDeepRange(editor.editable, { select: true });
+            table = getInSelection(editor.document,'table');
+        }
+        table.removeAttribute('style');
+        const cells = [...table.querySelectorAll('tr, td')];
+        cells.forEach( cell => {
+            const cStyle = cell.style;
+            if (cell.tagName === 'TR') {
+                cStyle.height = '';
+            } else {
+                cStyle.width = '';
+            }
+        })
     },
     deleteTable: (editor, table) => {
         table = table || getInSelection(editor.document, 'table');
